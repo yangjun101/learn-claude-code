@@ -41,15 +41,25 @@ except ImportError:
     pass
 
 from anthropic import Anthropic
+from anthropic import AnthropicBedrock
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+# 选择后端：设置 USE_BEDROCK=true 使用 AWS Bedrock，否则使用 Anthropic API
+USE_BEDROCK = os.getenv("USE_BEDROCK", "false").lower() == "true"
 
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+if USE_BEDROCK:
+    client = AnthropicBedrock(
+        aws_region=os.getenv("AWS_REGION", "us-east-1"),
+        # 默认使用 ~/.aws/credentials 或环境变量 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+    )
+    MODEL = os.getenv("MODEL_ID", "global.anthropic.claude-sonnet-4-6")
+else:
+    if os.getenv("ANTHROPIC_BASE_URL"):
+        os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+    client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
+    MODEL = os.environ["MODEL_ID"]
 
 SYSTEM = f"You are a coding agent at {os.getcwd()}. Use bash to solve tasks. Act, don't explain."
 
@@ -100,9 +110,11 @@ def agent_loop(messages: list):
         results = []
         for block in response.content:
             if block.type == "tool_use":
+                print(f"\n\033[35m── tool_use: {block.name} (id: {block.id}) ──\033[0m")
                 print(f"\033[33m$ {block.input['command']}\033[0m")
                 output = run_bash(block.input["command"])
-                print(output[:200])
+                print(f"\033[32m{output[:500]}\033[0m")
+                print(f"\033[35m── end ({len(output)} chars) ──\033[0m")
                 results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
